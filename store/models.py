@@ -15,7 +15,7 @@ class Warehouse(models.Model):
 class Product(models.Model):
     name = models.CharField(max_length=200, unique=True)
     description = models.TextField(max_length=2000)
-    creation_date = models.DateTimeField('date published')
+    creation_date = models.DateTimeField()
 
     def __str__(self):
         return self.name
@@ -56,8 +56,8 @@ class ContactInfo(models.Model):
     company = models.CharField(max_length=200)
     country_id = models.CharField(max_length=200)
     fax = models.CharField(max_length=200)
-    firstname = models.CharField(max_length=200)
-    lastname = models.CharField(max_length=200)
+    first_name = models.CharField(max_length=200)
+    last_name = models.CharField(max_length=200)
     postcode = models.CharField(max_length=200)
     region = models.CharField(max_length=200)
     street = models.CharField(max_length=200)
