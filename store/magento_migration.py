@@ -5,6 +5,14 @@ import sqlite3
 from collections import namedtuple
 
 
+def remove_underscore(t):
+    while t[0] == '_' and len(t) > 2:
+        t = t[1:]
+    if t == '_':
+        return ''
+    return t
+
+
 def client_accounts(file_name, db_conn):
     with open(file_name, 'rb') as csv_file:
         client_reader = csv.reader(csv_file, delimiter=',', quotechar='"')
@@ -16,38 +24,42 @@ def client_accounts(file_name, db_conn):
         print('Starting client accounts file')
         for row in client_reader:
             if is_header:
-                client = namedtuple('Client', row)
+                client = namedtuple('Client', map(remove_underscore, row))
                 is_header = False
                 continue
 
             c = client(*row)
 
             db = db_conn.cursor()
+            email = (c.email,)
+            db.execute('SELECT id FROM store_client WHERE email=?', email)
+            client_id = db.fetchone()
+
+            if client_id is not None:
+                print('\nDuplicate client line for {}, only last insert will be saved'.format(c.email))
+                db = db_conn.cursor()
+                db.execute("DELETE FROM store_client WHERE id=?", client_id)
+                db_conn.commit()
+
+            db = db_conn.cursor()
             db.execute(
-                "INSERT INTO store_client VALUES "
-                "(%(first_name)s, %(last_name)s, %(email)s, %(creation_date)s,"
-                " %(gender)s, %(password_hash)s, %(password_salt)s)" %
-                {
-                    'email': c.email,
-                    'creation_date': c.created_at,
-                    'first_name': c.firstname,
-                    'gender': c.gender,
-                    'last_name': c.lastname,
-                    'password_hash': c.password_hash.split(':')[0],
-                    'password_salt': c.password_hash.split(':')[1]
-                }
+                "INSERT INTO store_client "
+                "(first_name, last_name, email, creation_date, gender, password_hash, password_salt) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (c.firstname, c.lastname, c.email, c.created_at,
+                 c.gender, c.password_hash.split(':')[0], c.password_hash.split(':')[1], )
             )
             db_conn.commit()
             counter += 1
             if last_date != c.created_at:
                 last_date = c.created_at
-                print('\r%s' % last_date),
+                print('\r{}'.format(last_date)),
 
         print('\nFinished client accounts file, checking result :')
         db = db_conn.cursor()
         db.execute("SELECT COUNT(*) from store_client")
-        db_count = db.fetchone()
-        print('%d lines in the file, %d rows in the database' % (counter, db_count))
+        db_count = db.fetchone()[0]
+        print('{} lines in the file, {} rows in the database'.format(counter, db_count))
         if counter != db_count:
             print('Error processing client data, exiting.')
             exit()
@@ -65,65 +77,253 @@ def client_addresses(file_name, db_conn):
         print('Starting client accounts file')
         for row in address_reader:
             if is_header:
-                address = namedtuple('Address', row)
+                address = namedtuple('Address', map(remove_underscore, row))
                 is_header = False
                 continue
 
             c = address(*row)
 
             db = db_conn.cursor()
-            email = (c._email,)
+            email = (c.email,)
             db.execute('SELECT id FROM store_client WHERE email=?', email)
             client_id = db.fetchone()
 
             if client_id is None:
-                print('contact info but no matching email (%s), skipping' % c._email)
+                print('contact info but no matching email ({}), skipping'.format(c.email))
                 count_skipped += 1
                 continue
 
+            client_id = client_id[0]
+
             db = db_conn.cursor()
             db.execute(
-                "INSERT INTO store_contactinfo VALUES "
-                "(%(city)s, %(company)s, %(country_id)s, %(fax)s, %(first_name)s, %(last_name)s, %(postcode)s, "
-                "%(region)s, %(street)s, %(telephone)s, %(vat_id)s, %(address_default_billing)s, "
-                "%(address_default_shipping)s, %(client_id)s)" %
-                {
-                    'city': c.city,
-                    'company': c.company,
-                    'country_id': c.country_id,
-                    'fax': c.fax,
-                    'first_name': c.firstname,
-                    'last_name': c.lastname,
-                    'postcode': c.postcode,
-                    'region': c.region,
-                    'street': c.street,
-                    'telephone': c.telephone,
-                    'vat_id': c.vat_id,
-                    'address_default_billing': c._address_default_billing_,
-                    'address_default_shipping': c._address_default_shipping_,
-                    'client_id': client_id
-                }
+                "SELECT COUNT(*) from store_contactinfo WHERE "
+                "city=? AND company=? AND country_id=? AND fax=? AND first_name=? AND last_name=? AND postcode=? AND "
+                "region=? AND street=? AND telephone=? AND vat_id=? AND address_default_billing=? AND "
+                "address_default_shipping=? AND client_id=?",
+                (
+                    c.city,
+                    c.company,
+                    c.country_id,
+                    c.fax,
+                    c.firstname,
+                    c.lastname,
+                    c.postcode,
+                    c.region,
+                    c.street,
+                    c.telephone,
+                    c.vat_id,
+                    c.address_default_billing_,
+                    c.address_default_shipping_,
+                    client_id,
+                )
             )
-            db_conn.commit()
+            exists = db.fetchone()
+
+            if exists is not None and exists[0] != 0:
+                print('duplicate address, skipping')
+            else:
+                db = db_conn.cursor()
+                db.execute(
+                    "INSERT INTO store_contactinfo "
+                    "(city, company, country_id, fax, first_name, last_name, postcode, region, street, telephone, "
+                    "vat_id, address_default_billing, address_default_shipping, client_id) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        c.city,
+                        c.company,
+                        c.country_id,
+                        c.fax,
+                        c.firstname,
+                        c.lastname,
+                        c.postcode,
+                        c.region,
+                        c.street,
+                        c.telephone,
+                        c.vat_id,
+                        c.address_default_billing_,
+                        c.address_default_shipping_,
+                        client_id,
+                    )
+                )
+                db_conn.commit()
+
             counter += 1
 
             if last_date != c.vat_request_date:
                 last_date = c.vat_request_date
-                print('\r%s' % last_date),
+                print('\r{}'.format(last_date)),
 
         print('\nFinished client addresses file, checking result :')
         db = db_conn.cursor()
         db.execute("SELECT COUNT(*) from store_contactinfo")
-        db_count = db.fetchone()
-        print('%d lines in the file (and %d skipped), %d rows in the database' % (counter, count_skipped, db_count))
-        if counter != db_count:
-            print('Error processing client addresses, exiting.')
-            exit()
+        db_count = db.fetchone()[0]
+        print('{} lines in the file (and {} skipped), {} rows in the database'.format(counter, count_skipped, db_count))
 
 
-# TODO
 def products(file_name, db_conn):
-    pass
+    with open(file_name, 'rb') as csv_file:
+        product_reader = csv.reader(csv_file, delimiter=',', quotechar='"')
+
+        is_header = True
+        product = None
+        last_date = None
+        product_counter = 0
+        picture_counter = 0
+        warehouse_counter = 0
+        stock_counter = 0
+        print('Starting client accounts file')
+        for row in product_reader:
+            if is_header:
+                product = namedtuple('Product', map(remove_underscore, row))
+                is_header = False
+                continue
+
+            c = product(*row)
+
+            # Saving product object
+            db = db_conn.cursor()
+            ref = (c.sku,)
+            db.execute('SELECT id FROM store_product WHERE reference=?', ref)
+            product_id = db.fetchone()
+
+            if product_id is not None:
+                print('\nDuplicate product line for {}, only last insert will be saved'.format(c.sku))
+                db = db_conn.cursor()
+                db.execute("DELETE FROM store_product WHERE reference=?", ref)
+                db_conn.commit()
+
+            db = db_conn.cursor()
+            db.execute(
+                "INSERT INTO store_product "
+                "(reference, name, description, price, weight, tax_class_name, product_type, categories, "
+                "product_online, creation_date) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    c.sku,
+                    c.name,
+                    c.description,
+                    c.price,
+                    c.weight,
+                    c.tax_class_name,
+                    c.product_type,
+                    c.categories,
+                    c.product_online,
+                    c.created_at,
+                )
+            )
+
+            db_conn.commit()
+            product_counter += 1
+
+            db = db_conn.cursor()
+            ref = (c.sku,)
+            db.execute('SELECT id FROM store_product WHERE reference=?', ref)
+            product_id = db.fetchone()
+
+            if product_id is None:
+                print('\nCould not retrieve product id for {}, exiting.'.format(c.sku))
+                exit()
+
+            product_id = product_id[0]
+
+            # Creating/fetching warehouse
+            db = db_conn.cursor()
+            warehouse = (c.product_websites,)
+            db.execute('SELECT id FROM store_warehouse WHERE name=?', warehouse)
+            warehouse_id = db.fetchone()
+
+            if warehouse_id is None:
+                db = db_conn.cursor()
+                db.execute("INSERT INTO store_warehouse (name, description) VALUES (?,?)", (c.product_websites, '',))
+                db_conn.commit()
+                warehouse_counter += 1
+
+                db.execute('SELECT id FROM store_warehouse WHERE name=?', warehouse)
+                warehouse_id = db.fetchone()
+                if warehouse_id is None:
+                    print('\nCould not retrieve warehouse id for {}, exiting.'.format(c.product_websites))
+                    exit()
+
+            warehouse_id = warehouse_id[0]
+
+            # Saving stock
+            db = db_conn.cursor()
+            ids = (product_id, warehouse_id,)
+            db.execute('SELECT id FROM store_stock WHERE product_id=? AND warehouse_id=?', ids)
+            stock_id = db.fetchone()
+
+            if stock_id is not None:
+                print('\nDuplicate stock line for {}, only last insert will be saved'.format(c.sku))
+                db = db_conn.cursor()
+                db.execute("DELETE FROM store_stock WHERE product_id=? AND warehouse_id=?", ids)
+                db_conn.commit()
+
+            db = db_conn.cursor()
+            db.execute(
+                "INSERT INTO store_stock (product_count, product_id, warehouse_id) "
+                "VALUES (?,?,?)", (c.qty, product_id, warehouse_id,)
+            )
+            db_conn.commit()
+            stock_counter += 1
+
+            # Saving pictures
+            if c.base_image:
+                db = db_conn.cursor()
+                db.execute(
+                    "INSERT INTO store_productpicture (picture_url, picture_type, product_id) "
+                    "VALUES (?,?,?)", (c.base_image, 'base', product_id,)
+                )
+                db_conn.commit()
+                picture_counter += 1
+
+            if c.small_image:
+                db = db_conn.cursor()
+                db.execute(
+                    "INSERT INTO store_productpicture (picture_url, picture_type, product_id) "
+                    "VALUES (?,?,?)", (c.base_image, 'small', product_id,)
+                )
+                db_conn.commit()
+                picture_counter += 1
+
+            if c.thumbnail_image:
+                db = db_conn.cursor()
+                db.execute(
+                    "INSERT INTO store_productpicture (picture_url, picture_type, product_id) "
+                    "VALUES (?,?,?)", (c.base_image, 'thumbnail', product_id,)
+                )
+                db_conn.commit()
+                picture_counter += 1
+
+            if c.swatch_image:
+                db = db_conn.cursor()
+                db.execute(
+                    "INSERT INTO store_productpicture (picture_url, picture_type, product_id) "
+                    "VALUES (?,?,?)", (c.base_image, 'swatch', product_id,)
+                )
+                db_conn.commit()
+                picture_counter += 1
+
+            if last_date != c.created_at:
+                last_date = c.created_at
+                print('\r{}'.format(last_date)),
+
+        print('\nFinished product file, checking result :')
+        db = db_conn.cursor()
+        db.execute("SELECT COUNT(*) from store_product")
+        db_product_counter = db.fetchone()[0]
+        db = db_conn.cursor()
+        db.execute("SELECT COUNT(*) from store_warehouse")
+        db_warehouse_counter = db.fetchone()[0]
+        db = db_conn.cursor()
+        db.execute("SELECT COUNT(*) from store_stock")
+        db_stock_counter = db.fetchone()[0]
+        db = db_conn.cursor()
+        db.execute("SELECT COUNT(*) from store_productpicture")
+        db_picture_counter = db.fetchone()[0]
+        print('product: {} lines in the file, {} rows in the database'.format(product_counter, db_product_counter))
+        print('warehouse: {} found in the file, {} rows in the database'.format(warehouse_counter, db_warehouse_counter))
+        print('stock count: {} found in the file, {} rows in the database'.format(stock_counter, db_stock_counter))
+        print('pictures: {} found in the file, {} rows in the database'.format(picture_counter, db_picture_counter))
 
 
 def parse_args():
@@ -146,23 +346,23 @@ def parse_args():
     parser.add_argument("--date", dest="date", help="Minimal creation date (optional)",
                         default=None)
 
-    parser.add_argument("--db", dest="db", help="database name (mandatory)",
+    parser.add_argument("--db", dest="db", help="database file (mandatory)",
                         default=None)
 
-    args = parser.parse_args()
+    arguments = parser.parse_args()
 
-    if not args.client or not args.adress or not args.product or not args.db:
+    if not arguments.client or not arguments.adress or not arguments.product or not arguments.db:
         print('Missing argument, use -h to print help')
         exit()
 
-    return args
+    return arguments
 
 # main
 args = parse_args()
-conn = sqlite3.connect('example.db')
+conn = sqlite3.connect(args.db)
 
 client_accounts(args.client, conn)
-client_addresses(args.client, conn)
-products(args.client, conn)
+client_addresses(args.adress, conn)
+products(args.product, conn)
 
 conn.close()

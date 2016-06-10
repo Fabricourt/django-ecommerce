@@ -4,7 +4,7 @@ from django.db import models
 # Store supply
 # Warehouses where products are stored (stock)
 class Warehouse(models.Model):
-    name = models.CharField(max_length=200)
+    name = models.CharField(max_length=200, unique=True)
     description = models.CharField(max_length=200)
 
     def __str__(self):
@@ -13,8 +13,15 @@ class Warehouse(models.Model):
 
 # Product sold on the store
 class Product(models.Model):
-    name = models.CharField(max_length=200, unique=True)
+    reference = models.CharField(max_length=200, unique=True)
+    name = models.CharField(max_length=200)
     description = models.TextField(max_length=2000)
+    price = models.FloatField()
+    weight = models.FloatField()
+    tax_class_name = models.CharField(max_length=200)
+    product_type = models.CharField(max_length=200)
+    categories = models.CharField(max_length=200)
+    product_online = models.BooleanField(default=False)
     creation_date = models.DateTimeField()
 
     def __str__(self):
@@ -25,6 +32,7 @@ class Product(models.Model):
 class ProductPicture(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     picture_url = models.URLField()
+    picture_type = models.CharField(max_length=200)
 
 
 # Stock of product in warehouse
@@ -32,6 +40,9 @@ class Stock(models.Model):
     warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     product_count = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = ('product', 'warehouse',)
 
 
 # Client activity
