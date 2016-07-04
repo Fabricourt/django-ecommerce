@@ -1,0 +1,6 @@
+<h1>{{ product.name }}</h1>
+<ul>
+{% for picture in ProductPicture.objects.filter(product__exact=product.id) %}
+    <li>{{ picture.picture_url }}</li>
+{% endfor %}
+</ul>
